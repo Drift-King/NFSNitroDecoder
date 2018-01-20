@@ -1,4 +1,5 @@
-﻿using System;
+﻿using NAudio.Wave;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -13,63 +14,120 @@ namespace NFSNitroDecoder
         static void Main(string[] args)
         {
             byte[] tfile = File.ReadAllBytes(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\Global\FE_COMMON_STR.ast");
-            uint pos = 0x2407b80;//0x0000000002407b80;
+            uint pos = 0x40;//0x0000000002407b80;
 
             FileStream currentFile = File.Create($"outfile {pos:x}.raw");
 
-            bool a = true;
-
-            bool newFileMarkerAppeared = false;
             while (pos > 0 && pos < tfile.Length)
             {
-                uint val = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(tfile, (int)pos));
-                uint val2 = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(tfile, (int)pos + 4));
-                //Console.WriteLine($"{pos:x}: {val:x} / {val2:x}    ({val} / {val2})");
-
-                bool lastBlock = false;
-                if ((val & 0x80000000) != 0)
-                {
-                    val = val ^ 0x80000000;
-
-                    if (newFileMarkerAppeared)
-                    {
-                        lastBlock = true;
-                        newFileMarkerAppeared = false;
-                    }
-                    else
-                    {
-                        newFileMarkerAppeared = true;
-                    }
-                }
-                else if (newFileMarkerAppeared)
-                {
-                    Console.WriteLine("Strange bits???");
-                    newFileMarkerAppeared = false;
-                }
-
-                for(uint i = 8; i < val; i += 76)
-                {
-                    float[] data = Decode(tfile, pos + i);
-                    if (a)
-                    {
-                        foreach (float f in data)
-                        {
-                            currentFile.Write(BitConverter.GetBytes(f), 0, sizeof(float));
-                        }
-                    }
-                    a = !a;
-                }
-
-                pos += val;
-
-                if (lastBlock)
-                {
-                    currentFile.Close();
-                    Console.WriteLine("End of file");
-                    currentFile = File.Create($"outfile {pos:x}.raw");
-                }
+                pos = ConvertTrack(tfile, pos);
             }
             Console.ReadKey();
+        }
+
+        private static uint ConvertTrack(byte[] file, uint trackStartLocation)
+        {
+            uint firstval1 = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)trackStartLocation));
+            uint firstval2 = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)trackStartLocation + 4));
+
+            if ((firstval1 & 0x80000000) == 0x80000000)
+            {
+                Console.WriteLine($"Skipped single-block track @ {trackStartLocation:x}");
+                return trackStartLocation + (firstval1 ^ 0x80000000);
+            }
+
+            float ccFloat = (((firstval1 - 8f) / 76f) * 128f) / firstval2;
+            if(ccFloat - Math.Floor(ccFloat) != 0)
+            {
+                throw new Exception();
+            }
+            int channelCount = (int)ccFloat;
+
+            List<float>[] channels = new List<float>[channelCount];
+            for (int i = 0; i < channelCount; i++)
+                channels[i] = new List<float>();
+
+            uint curPos = trackStartLocation;
+            while(true)
+            {
+                uint amntToNextBlock = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)curPos));
+                uint outputLength = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)curPos + 4));
+
+                bool lastBlock = false;
+                if ((amntToNextBlock & 0x80000000) != 0)
+                {
+                    amntToNextBlock = amntToNextBlock ^ 0x80000000;
+
+                    lastBlock = true;
+                }
+
+                int curLength = 0;
+                uint curLinePos = curPos + 8;
+                while(curLength < outputLength)
+                {
+                    foreach(List<float> channel in channels)
+                    {
+                        float[] data = Decode(file, curLinePos);
+                        if (curLength + 128 > outputLength)
+                        {
+                            data = data.Take((int)outputLength - curLength).ToArray();
+                        }
+                        channel.AddRange(data);
+                        curLinePos += 76;
+
+                        if(curLinePos > curPos + amntToNextBlock)
+                        {
+                            throw new Exception();
+                        }
+                    }
+                    curLength += 128;
+                }
+
+                //for (uint i = 8; i < amntToNextBlock; i += 76)
+                //{
+                //    if(i + 76 > amntToNextBlock)
+                //    {
+                //        Console.WriteLine($"Cutoff @ {curPos:x}");
+                //        break;
+                //    }
+
+                //    float[] data = Decode(file, curPos + i);
+
+                //    channels[curChannel].AddRange(data);
+                //    curChannel = (curChannel + 1) % channelCount;
+                //}
+
+                if (channels.Any(c => c.Count != channels[0].Count))
+                {
+                    throw new Exception();
+                }
+
+                curPos += amntToNextBlock;
+                if (lastBlock)
+                {
+                    break;
+                }                     
+            }
+
+            if(channels.Any(c => c.Count != channels[0].Count))
+            {
+                throw new Exception();
+            }
+
+            WaveFormat waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(32000, channelCount);
+            using (WaveFileWriter writer = new WaveFileWriter($"extracted at {trackStartLocation}.wav", waveFormat))
+            {
+                for(int i = 0; i < channels[0].Count; i++)
+                {
+                    foreach(List<float> channel in channels)
+                    {
+                        writer.WriteSample(channel[i]);
+                    }
+                }
+            }
+
+            Console.WriteLine($"Converted {channelCount}-channel {channels[0].Count / 32000}-second-long track");
+            return curPos;
         }
 
         private static float[] Decode(byte[] file, uint filePos)
