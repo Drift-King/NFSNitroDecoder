@@ -13,31 +13,65 @@ namespace NFSNitroDecoder
     {
         static void Main(string[] args)
         {
-            byte[] tfile = File.ReadAllBytes(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\Global\FE_COMMON_STR.ast");
-            uint pos = 0x40;//0x0000000002407b80;
-
-            FileStream currentFile = File.Create($"outfile {pos:x}.raw");
-
-            while (pos > 0 && pos < tfile.Length)
-            {
-                pos = ConvertTrack(tfile, pos);
-            }
-            Console.ReadKey();
+            Console.WriteLine("Extracting FE_COMMON_STR.ast...");
+            ExtractASTFile(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\Global\FE_COMMON_STR.ast");
+            Console.WriteLine("Extracting PFData files");
+            ConvertPFDataFiles(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\PFData");
         }
 
-        private static uint ConvertTrack(byte[] file, uint trackStartLocation)
+        private static void ExtractASTFile(String astFilePath)
         {
-            uint firstval1 = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)trackStartLocation));
-            uint firstval2 = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)trackStartLocation + 4));
+            byte[] tfile = File.ReadAllBytes(astFilePath);
+            String filename = Path.GetFileName(astFilePath);
+
+            //First track always starts at 0x40
+            uint pos = 0x40;
+
+            Directory.CreateDirectory(filename);
+            while (pos > 0 && pos < tfile.Length)
+            {
+                pos = ConvertTrack(tfile, pos, Path.Combine(filename, $"Track starting at {pos}.wav"));
+            }
+        }
+
+        private static void ConvertPFDataFiles(String PFDataFolderPath)
+        {
+            foreach (String dir in Directory.EnumerateDirectories(PFDataFolderPath))
+            {
+                byte[] file = File.ReadAllBytes(Path.Combine(dir, "Track.mus"));
+                String songName = Path.GetFileName(dir);
+                Console.WriteLine($"Converting {songName}...");
+
+                List<uint> arr = new List<uint>();
+
+                int i = 1;
+                uint pos = 0x680;
+                while (pos + 4 < file.Length)
+                {
+                    arr.Add(pos);
+                    Directory.CreateDirectory($"{songName} PFData");
+                    pos = ConvertTrack(file, pos, $"{songName} PFData/{songName} part {i}.wav");
+
+                    //Align pos to determine location of next track
+                    pos = (uint)Math.Ceiling(pos / 128f) * 128;
+                    i++;
+                }
+            }
+        }
+
+        private static uint ConvertTrack(byte[] file, uint trackStartLocation, String filename)
+        {
+            uint firstval1 = GetUintFromFile(file, trackStartLocation);
+            uint firstval2 = GetUintFromFile(file, trackStartLocation + 4);
 
             if ((firstval1 & 0x80000000) == 0x80000000)
             {
-                Console.WriteLine($"Skipped single-block track @ {trackStartLocation:x}");
+                Console.WriteLine($"(Skipped single-block track @ {trackStartLocation:x})");
                 return trackStartLocation + (firstval1 ^ 0x80000000);
             }
 
             float ccFloat = (((firstval1 - 8f) / 76f) * 128f) / firstval2;
-            if(ccFloat - Math.Floor(ccFloat) != 0)
+            if (ccFloat - Math.Floor(ccFloat) != 0)
             {
                 throw new Exception();
             }
@@ -48,10 +82,10 @@ namespace NFSNitroDecoder
                 channels[i] = new List<float>();
 
             uint curPos = trackStartLocation;
-            while(true)
+            while (true)
             {
-                uint amntToNextBlock = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)curPos));
-                uint outputLength = (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)curPos + 4));
+                uint amntToNextBlock = GetUintFromFile(file, curPos);
+                uint outputLength = GetUintFromFile(file, curPos + 4);
 
                 bool lastBlock = false;
                 if ((amntToNextBlock & 0x80000000) != 0)
@@ -63,9 +97,9 @@ namespace NFSNitroDecoder
 
                 int curLength = 0;
                 uint curLinePos = curPos + 8;
-                while(curLength < outputLength)
+                while (curLength < outputLength)
                 {
-                    foreach(List<float> channel in channels)
+                    foreach (List<float> channel in channels)
                     {
                         float[] data = Decode(file, curLinePos);
                         if (curLength + 128 > outputLength)
@@ -75,27 +109,13 @@ namespace NFSNitroDecoder
                         channel.AddRange(data);
                         curLinePos += 76;
 
-                        if(curLinePos > curPos + amntToNextBlock)
+                        if (curLinePos > curPos + amntToNextBlock)
                         {
                             throw new Exception();
                         }
                     }
                     curLength += 128;
                 }
-
-                //for (uint i = 8; i < amntToNextBlock; i += 76)
-                //{
-                //    if(i + 76 > amntToNextBlock)
-                //    {
-                //        Console.WriteLine($"Cutoff @ {curPos:x}");
-                //        break;
-                //    }
-
-                //    float[] data = Decode(file, curPos + i);
-
-                //    channels[curChannel].AddRange(data);
-                //    curChannel = (curChannel + 1) % channelCount;
-                //}
 
                 if (channels.Any(c => c.Count != channels[0].Count))
                 {
@@ -106,10 +126,10 @@ namespace NFSNitroDecoder
                 if (lastBlock)
                 {
                     break;
-                }                     
+                }
             }
 
-            if(channels.Any(c => c.Count != channels[0].Count))
+            if (channels.Any(c => c.Count != channels[0].Count))
             {
                 throw new Exception();
             }
@@ -117,17 +137,22 @@ namespace NFSNitroDecoder
             WaveFormat waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(32000, channelCount);
             using (WaveFileWriter writer = new WaveFileWriter($"extracted at {trackStartLocation}.wav", waveFormat))
             {
-                for(int i = 0; i < channels[0].Count; i++)
+                for (int i = 0; i < channels[0].Count; i++)
                 {
-                    foreach(List<float> channel in channels)
+                    foreach (List<float> channel in channels)
                     {
                         writer.WriteSample(channel[i]);
                     }
                 }
             }
 
-            Console.WriteLine($"Converted {channelCount}-channel {channels[0].Count / 32000}-second-long track");
+            Console.WriteLine($"Converted {channelCount}-channel {channels[0].Count / 32000f:f2}-second-long track");
             return curPos;
+        }
+
+        private static uint GetUintFromFile(byte[] file, uint location)
+        {
+            return (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)location));
         }
 
         private static float[] Decode(byte[] file, uint filePos)
