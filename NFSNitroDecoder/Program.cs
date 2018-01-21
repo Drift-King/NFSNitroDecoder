@@ -30,7 +30,7 @@ namespace NFSNitroDecoder
             Directory.CreateDirectory(filename);
             while (pos > 0 && pos < tfile.Length)
             {
-                pos = ConvertTrack(tfile, pos, Path.Combine(filename, $"Track starting at {pos}.wav"));
+                ConvertTrack(tfile, pos, Path.Combine(filename, $"Track starting at {pos}.wav"), out pos);
             }
         }
 
@@ -40,26 +40,34 @@ namespace NFSNitroDecoder
             {
                 byte[] file = File.ReadAllBytes(Path.Combine(dir, "Track.mus"));
                 String songName = Path.GetFileName(dir);
+                String dirName = $"PFData {songName}";
                 Console.WriteLine($"Converting {songName}...");
 
-                List<uint> arr = new List<uint>();
+                Directory.CreateDirectory(dirName);
+
+                List<float>[] fullSongData = { new List<float>(), new List<float>() };
 
                 int i = 1;
                 uint pos = 0x680;
                 while (pos + 4 < file.Length)
                 {
-                    arr.Add(pos);
-                    Directory.CreateDirectory($"{songName} PFData");
-                    pos = ConvertTrack(file, pos, $"{songName} PFData/{songName} part {i}.wav");
+                    List<float>[] part = ConvertTrack(file, pos, $"{dirName}/{songName} part {i}.wav", out pos);
+                    if (i != 50)
+                    {
+                        fullSongData[0].AddRange(part[0]);
+                        fullSongData[1].AddRange(part[1]);
+                    }
 
                     //Align pos to determine location of next track
                     pos = (uint)Math.Ceiling(pos / 128f) * 128;
                     i++;
                 }
+
+                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} Full track (All parts except 50 joined toegether).wav");
             }
         }
 
-        private static uint ConvertTrack(byte[] file, uint trackStartLocation, String filename)
+        private static List<float>[] ConvertTrack(byte[] file, uint trackStartLocation, String filename, out uint nextTrackStartLocation)
         {
             uint firstval1 = GetUintFromFile(file, trackStartLocation);
             uint firstval2 = GetUintFromFile(file, trackStartLocation + 4);
@@ -67,7 +75,8 @@ namespace NFSNitroDecoder
             if ((firstval1 & 0x80000000) == 0x80000000)
             {
                 Console.WriteLine($"(Skipped single-block track @ {trackStartLocation:x})");
-                return trackStartLocation + (firstval1 ^ 0x80000000);
+                nextTrackStartLocation = trackStartLocation + (firstval1 ^ 0x80000000);
+                return null;
             }
 
             float ccFloat = (((firstval1 - 8f) / 76f) * 128f) / firstval2;
@@ -134,8 +143,17 @@ namespace NFSNitroDecoder
                 throw new Exception();
             }
 
-            WaveFormat waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(32000, channelCount);
-            using (WaveFileWriter writer = new WaveFileWriter($"extracted at {trackStartLocation}.wav", waveFormat))
+            SaveChannelsToWAV(channels, filename);
+
+            Console.WriteLine($"Converted {channelCount}-channel {channels[0].Count / 32000f:f2}-second-long track");
+            nextTrackStartLocation = curPos;
+            return channels;
+        }
+
+        private static void SaveChannelsToWAV(List<float>[] channels, String filename)
+        {
+            WaveFormat waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(32000, channels.Length);
+            using (WaveFileWriter writer = new WaveFileWriter(filename, waveFormat))
             {
                 for (int i = 0; i < channels[0].Count; i++)
                 {
@@ -145,9 +163,6 @@ namespace NFSNitroDecoder
                     }
                 }
             }
-
-            Console.WriteLine($"Converted {channelCount}-channel {channels[0].Count / 32000f:f2}-second-long track");
-            return curPos;
         }
 
         private static uint GetUintFromFile(byte[] file, uint location)
