@@ -13,10 +13,39 @@ namespace NFSNitroDecoder
     {
         static void Main(string[] args)
         {
+            //VerifyConversionAlgorithm();
+
             Console.WriteLine("Extracting FE_COMMON_STR.ast...");
             ExtractASTFile(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\Global\FE_COMMON_STR.ast");
             Console.WriteLine("Extracting PFData files");
             ConvertPFDataFiles(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\PFData");
+        }
+
+        private static void VerifyConversionAlgorithm()
+        {
+            using (BinaryReader f = new BinaryReader(File.OpenRead("testdata.raw"), Encoding.ASCII))
+            {
+                while (f.PeekChar() != -1)
+                {
+                    byte[] input = f.ReadBytes(76);
+                    byte[] expectedOutput = f.ReadBytes(512);
+                    float[] actualOutput = Decode(input, 0);
+
+                    for (int i = 0; i < 128; i++)
+                    {
+                        //Reverse because of endianness
+                        byte[] actualFloatAsBytes = BitConverter.GetBytes(actualOutput[i]).Reverse().ToArray();
+                        byte[] expectedFloatAsBytes = expectedOutput.Skip(i * 4).Take(4).ToArray();
+                        for (int b = 0; b < 4; b++)
+                        {
+                            if (actualFloatAsBytes[b] != expectedFloatAsBytes[b])
+                            {
+                                throw new Exception("Conversion algorithm is incorrect.");
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private static void ExtractASTFile(String astFilePath)
@@ -157,6 +186,7 @@ namespace NFSNitroDecoder
             {
                 for (int i = 0; i < channels[0].Count; i++)
                 {
+                    //Left channel comes before right (same as in a WAV, so no reordering needed)
                     foreach (List<float> channel in channels)
                     {
                         writer.WriteSample(channel[i]);
@@ -185,8 +215,8 @@ namespace NFSNitroDecoder
                                   0x506C6163, 0x65486F6C, 0x64657200, 0x00000000,
                                   0x00000000, 0x00000000, 0x00000000, 0x00000000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
 
-            float[] TABLE_R28 = t80544810;
-            float[] TABLE_R12 = t80544810.Skip(8).ToArray(); //float[30]
+            float[] TABLE_R28 = t80544810; //len 8
+            float[] TABLE_R12 = t80544810.Skip(8).ToArray(); //len c
 
             double f2 = BitConverter.Int64BitsToDouble(0x3f00000000000000);
             double f3 = BitConverter.Int64BitsToDouble(0x4330000080000000);
@@ -271,8 +301,15 @@ namespace NFSNitroDecoder
                     float prevFloat1 = generatedData[writeLoc - 2];
                     float prevFloat2 = generatedData[writeLoc - 1];
 
-                    float float1 = (array3[block] * prevFloat1) + (array2[block] * prevFloat2) + (array5[block] * array4[block]);
-                    float float2 = (array3[block] * prevFloat2) + (array2[block] * float1)     + (array6[block] * array4[block]);
+                    //Need to do it in this order for accuracy
+                    float a = (array5[block] * array4[block]);
+                    float b = (array2[block] * prevFloat2) + a;
+                    float float1 = (array3[block] * prevFloat1) + b;
+
+                    float c = (array6[block] * array4[block]);
+                    float d = (array2[block] * float1) + c;
+                    float float2 = (array3[block] * prevFloat2) + d;
+
                     generatedData[writeLoc] = float1;
                     generatedData[writeLoc + 1] = float2;
                 }
