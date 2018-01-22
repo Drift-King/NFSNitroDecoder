@@ -79,6 +79,7 @@ namespace NFSNitroDecoder
                     }
                 }
             }
+            Console.WriteLine("=");
         }
 
         private static void ExtractASTFile(String astFilePath)
