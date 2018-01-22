@@ -236,26 +236,19 @@ namespace NFSNitroDecoder
 
         private static float[] Decode(byte[] file, uint filePos)
         {
-#if DEBUG
-            uint origFilePos = filePos;
-#endif
-            float[] t80544810 = new uint[]
+            float[] TABLE_R28 = new uint[]
                                 { 0x00000000, 0x00000000, 0x3F700000, 0x00000000,
-                                  0x3FE60000, 0xBF500000, 0x3FC40000, 0xBF5C0000,
-                                  0x30000000, 0x2F800000, 0x2F000000, 0x2E800000,
+                                  0x3FE60000, 0xBF500000, 0x3FC40000, 0xBF5C0000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
+            float[] TABLE_R12 = new uint[]
+                                { 0x30000000, 0x2F800000, 0x2F000000, 0x2E800000,
                                   0x2E000000, 0x2D800000, 0x2D000000, 0x2C800000,
                                   0x2C000000, 0x2B800000, 0x2B000000, 0x2A800000,
-                                  0x2A000000, 0x00000000, 0x00000000, 0x00000000,
-                                  0x506C6163, 0x65486F6C, 0x64657200, 0x00000000,
-                                  0x00000000, 0x00000000, 0x00000000, 0x00000000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
-
-            float[] TABLE_R28 = t80544810; //len 8
-            float[] TABLE_R12 = t80544810.Skip(8).ToArray(); //len c
+                                  0x2A000000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
 
             double f2 = BitConverter.Int64BitsToDouble(0x3f00000000000000);
             double f3 = BitConverter.Int64BitsToDouble(0x4330000080000000);
 
-            float[] generatedData = new float[128];// * 4];
+            float[] generatedData = new float[128];
 
             float[] array1 = new float[8];
             float[] array2 = new float[4];
@@ -263,45 +256,41 @@ namespace NFSNitroDecoder
             float[] array4 = new float[4];
 
             int curChunkOffset = 0;
-            int arrayPos = 0;
             for (int i = 0; i < 4; i++)
             {
                 uint r31 = file[filePos];
                 uint r10 = r31 & 0x000000F0;
-                r31 = (r31 & 0x0000000F) << 3;
-                array2[arrayPos] = TABLE_R28[r31 / 4];
-                array3[arrayPos] = TABLE_R28[(r31 / 4) + 1];
+                r31 = (r31 & 0x0000000F) * 2;
+                array2[i] = TABLE_R28[r31];
+                array3[i] = TABLE_R28[r31 + 1];
 
                 int r9 = (sbyte)file[filePos + 1];
-                r9 *= 256;
+                r9 <<= 8;
                 r9 += (int)r10;
                 r9 = (int)((uint)r9 ^ 0x80000000);
                 double f0 = BitConverter.Int64BitsToDouble(0x43300000_00000000 | (uint)r9);
                 double f1 = f2 * (f0 - f3);
                 generatedData[curChunkOffset] = (float)f1;
-                array1[arrayPos] = (float)f1;
+                array1[i] = (float)f1;
 
 
 
                 r31 = file[filePos + 2];
                 r10 = r31 & 0x000000F0;
-                r31 = (r31 & 0x0000000F) << 2;
-                array4[arrayPos] = TABLE_R12[r31 / 4];
+                r31 = r31 & 0x0000000F;
+                array4[i] = TABLE_R12[r31];
 
                 r9 = (sbyte)file[filePos + 3];
-                r9 *= 256;
+                r9 <<= 8;
                 r9 += (int)r10;
                 r9 = (int)((uint)r9 ^ 0x80000000);
                 f0 = BitConverter.Int64BitsToDouble(0x43300000_00000000 | (uint)r9);
                 f0 = f2 * (f0 - f3);
                 generatedData[curChunkOffset + 1] = (float)f0;
-                array1[arrayPos + 4] = (float)f0;
+                array1[i + 4] = (float)f0;
 
-
-
-                curChunkOffset += 32;// * 4;
+                curChunkOffset += 32;
                 filePos += 4;
-                arrayPos += 1;
             }
 
             for(int i = 0; i < 15; i++)
@@ -348,13 +337,6 @@ namespace NFSNitroDecoder
                     generatedData[writeLoc + 1] = float2;
                 }
             }
-
-#if DEBUG
-            if(filePos != origFilePos + 76)
-            {
-                Debugger.Break();
-            }
-#endif
             return generatedData;
         }
     }
