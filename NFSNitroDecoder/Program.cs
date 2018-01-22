@@ -259,29 +259,23 @@ namespace NFSNitroDecoder
             for (int i = 0; i < 4; i++)
             {
                 uint byte1 = file[filePos];
-                uint tableSelection = (byte1 & 0x0000000F) * 2;
+                uint tableSelection = (byte1 & 0x0F) * 2;
                 prevFloatInfluencePerBlock[i] = prevInfluencePairTable[tableSelection];
                 prevPrevFloatInfluencePerBlock[i] = prevInfluencePairTable[tableSelection + 1];
 
-                int r9 = (sbyte)file[filePos + 1];
-                r9 <<= 8;
-                r9 += (int)(byte1 & 0x000000F0);
-                r9 = (int)((uint)r9 ^ 0x80000000);
-                double otherf1 = f2 * (r9 - unchecked((int)0x80000000));
+                int byte2SignExtend = (sbyte)file[filePos + 1];
+                int r9 = (byte2SignExtend << 8) | (int)(byte1 & 0xF0);
+                double otherf1 = f2 * r9;
                 generatedData[curChunkOffset] = (float)otherf1;
                 //array1[i] = (float)f1;
 
 
-
                 uint byte3 = file[filePos + 2];
-                tableSelection = byte3 & 0x0000000F;
-                valueMultiplierPerBlock[i] = valueMultiplierTable[tableSelection];
+                valueMultiplierPerBlock[i] = valueMultiplierTable[byte3 & 0x0F];
 
-                r9 = (sbyte)file[filePos + 3];
-                r9 <<= 8;
-                r9 += (int)(byte3 & 0x000000F0);
-                r9 = (int)((uint)r9 ^ 0x80000000);
-                double otherf0 = f2 * (r9 - unchecked((int)0x80000000));
+                int byte4SignExtend = (sbyte)file[filePos + 3];
+                r9 = (byte4SignExtend << 8) | (int)(byte3 & 0xF0);
+                double otherf0 = f2 * r9;
                 generatedData[curChunkOffset + 1] = (float)otherf0;
                 //array1[i + 4] = (float)f0;
 
