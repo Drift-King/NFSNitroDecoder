@@ -15,10 +15,33 @@ namespace NFSNitroDecoder
         {
             //VerifyConversionAlgorithm();
 
-            Console.WriteLine("Extracting FE_COMMON_STR.ast...");
-            ExtractASTFile(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\Global\FE_COMMON_STR.ast");
-            Console.WriteLine("Extracting PFData files");
-            ConvertPFDataFiles(@"C:\Users\rolan\Desktop\Need For Speed Nitro\Extracted Partition 1\Sound\PFData");
+            String mode = args[0];
+            String path = String.Join(" ", args.Skip(1));
+            switch (mode)
+            {
+                case "--ast":
+                    Console.WriteLine("Extracting AST file...");
+                    ExtractASTFile(path);
+                    break;
+                case "--pfdata":
+                    Console.WriteLine("Extracting all PFData files...");
+                    ConvertPFDataFiles(path);
+                    break;
+                case "--all-songs": //path should be to sound folder
+                    Console.WriteLine("Extracting FE_COMMON_STR.ast...");
+                    ExtractASTFile(Path.Combine(path, @"Global\FE_COMMON_STR.ast"));
+                    Console.WriteLine("Extracting PFData files...");
+                    ConvertPFDataFiles(Path.Combine(path, @"PFData\\"));
+                    break;
+
+                case "--verify-algorithm":
+                    Console.WriteLine("Verifying...");
+                    VerifyConversionAlgorithm();
+                    Console.WriteLine("Verification complete.");
+                    break;
+                default:
+                    throw new InvalidOperationException("Invalid mode!");
+            }
         }
 
         private static void VerifyConversionAlgorithm()
@@ -92,7 +115,7 @@ namespace NFSNitroDecoder
                     i++;
                 }
 
-                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} Full track (All parts except 50 joined toegether).wav");
+                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} Full track (All parts except 50 joined together).wav");
             }
         }
 
