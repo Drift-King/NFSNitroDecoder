@@ -13,8 +13,6 @@ namespace NFSNitroDecoder
     {
         static void Main(string[] args)
         {
-            //VerifyConversionAlgorithm();
-
             String mode = args[0];
             String path = String.Join(" ", args.Skip(1));
             switch (mode)
@@ -46,6 +44,12 @@ namespace NFSNitroDecoder
 
         private static void VerifyConversionAlgorithm()
         {
+            Console.CursorLeft = 30 + 2;
+            Console.Write("]");
+            Console.CursorLeft = 0;
+            Console.Write("[");
+
+            int prevProgress = 0;
             using (BinaryReader f = new BinaryReader(File.OpenRead("testdata.raw"), Encoding.ASCII))
             {
                 while (f.PeekChar() != -1)
@@ -66,6 +70,12 @@ namespace NFSNitroDecoder
                                 throw new Exception("Conversion algorithm is incorrect.");
                             }
                         }
+                    }
+
+                    if(Math.Floor((f.BaseStream.Position / (float)f.BaseStream.Length) * 30) > prevProgress)
+                    {
+                        Console.Write("=");
+                        prevProgress++;
                     }
                 }
             }
