@@ -236,10 +236,10 @@ namespace NFSNitroDecoder
 
         private static float[] Decode(byte[] file, uint filePos)
         {
-            float[] TABLE_R28 = new uint[]
+            float[] prevInfluencePairTable = new uint[]
                                 { 0x00000000, 0x00000000, 0x3F700000, 0x00000000,
                                   0x3FE60000, 0xBF500000, 0x3FC40000, 0xBF5C0000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
-            float[] TABLE_R12 = new uint[]
+            float[] valueMultiplierTable = new uint[]
                                 { 0x30000000, 0x2F800000, 0x2F000000, 0x2E800000,
                                   0x2E000000, 0x2D800000, 0x2D000000, 0x2C800000,
                                   0x2C000000, 0x2B800000, 0x2B000000, 0x2A800000,
@@ -250,44 +250,40 @@ namespace NFSNitroDecoder
 
             float[] generatedData = new float[128];
 
-            float[] array1 = new float[8];
-            float[] array2 = new float[4];
-            float[] array3 = new float[4];
-            float[] array4 = new float[4];
+            //float[] array1 = new float[8];
+            float[] prevFloatInfluencePerBlock = new float[4];
+            float[] prevPrevFloatInfluencePerBlock = new float[4];
+            float[] valueMultiplierPerBlock = new float[4];
 
             int curChunkOffset = 0;
             for (int i = 0; i < 4; i++)
             {
-                uint r31 = file[filePos];
-                uint r10 = r31 & 0x000000F0;
-                r31 = (r31 & 0x0000000F) * 2;
-                array2[i] = TABLE_R28[r31];
-                array3[i] = TABLE_R28[r31 + 1];
+                uint byte1 = file[filePos];
+                uint tableSelection = (byte1 & 0x0000000F) * 2;
+                prevFloatInfluencePerBlock[i] = prevInfluencePairTable[tableSelection];
+                prevPrevFloatInfluencePerBlock[i] = prevInfluencePairTable[tableSelection + 1];
 
                 int r9 = (sbyte)file[filePos + 1];
                 r9 <<= 8;
-                r9 += (int)r10;
+                r9 += (int)(byte1 & 0x000000F0);
                 r9 = (int)((uint)r9 ^ 0x80000000);
-                double f0 = BitConverter.Int64BitsToDouble(0x43300000_00000000 | (uint)r9);
-                double f1 = f2 * (f0 - f3);
-                generatedData[curChunkOffset] = (float)f1;
-                array1[i] = (float)f1;
+                double otherf1 = f2 * (r9 - unchecked((int)0x80000000));
+                generatedData[curChunkOffset] = (float)otherf1;
+                //array1[i] = (float)f1;
 
 
 
-                r31 = file[filePos + 2];
-                r10 = r31 & 0x000000F0;
-                r31 = r31 & 0x0000000F;
-                array4[i] = TABLE_R12[r31];
+                uint byte3 = file[filePos + 2];
+                tableSelection = byte3 & 0x0000000F;
+                valueMultiplierPerBlock[i] = valueMultiplierTable[tableSelection];
 
                 r9 = (sbyte)file[filePos + 3];
                 r9 <<= 8;
-                r9 += (int)r10;
+                r9 += (int)(byte3 & 0x000000F0);
                 r9 = (int)((uint)r9 ^ 0x80000000);
-                f0 = BitConverter.Int64BitsToDouble(0x43300000_00000000 | (uint)r9);
-                f0 = f2 * (f0 - f3);
-                generatedData[curChunkOffset + 1] = (float)f0;
-                array1[i + 4] = (float)f0;
+                double otherf0 = f2 * (r9 - unchecked((int)0x80000000));
+                generatedData[curChunkOffset + 1] = (float)otherf0;
+                //array1[i + 4] = (float)f0;
 
                 curChunkOffset += 32;
                 filePos += 4;
@@ -295,25 +291,20 @@ namespace NFSNitroDecoder
 
             for(int i = 0; i < 15; i++)
             {
-                float[] array5 = new float[4];
-                float[] array6 = new float[4];
+                float[] float1baseValuePerBlock = new float[4];
+                float[] float2baseValuePerBlock = new float[4];
 
-                double f12 = BitConverter.Int64BitsToDouble(0x4330000080000000);
                 for (int b = 0; b < 4; b++)
                 {
                     byte by = file[filePos];
 
-                    uint n = (by & (uint)0xF0) << 24;
-                    n = n = n ^ 0x80000000;
-                    double f = BitConverter.Int64BitsToDouble(0x43300000_00000000 | (uint)n);
-                    f = f - f12;
-                    array5[b] = (float)f;
+                    //268435456 = -Int32.Min / 8
 
-                    n = (by & (uint)0x0F) << 28;
-                    n = n = n ^ 0x80000000;
-                    f = BitConverter.Int64BitsToDouble(0x43300000_00000000 | (uint)n);
-                    f = f - f12;
-                    array6[b] = (float)f;
+                    uint upperNibble = (by & (uint)0xF0) >> 4;
+                    float1baseValuePerBlock[b] = (int)(upperNibble * 268435456);
+
+                    uint lowerNibble = (by & (uint)0x0F);
+                    float2baseValuePerBlock[b] = (int)(lowerNibble * 268435456);
 
                     filePos += 1;
                 }
@@ -321,17 +312,17 @@ namespace NFSNitroDecoder
                 for(int block = 0; block < 4; block++)
                 {
                     int writeLoc = (block * 32) + ((i+1) * 2);
-                    float prevFloat1 = generatedData[writeLoc - 2];
-                    float prevFloat2 = generatedData[writeLoc - 1];
+                    float prevPrevFloat = generatedData[writeLoc - 2];
+                    float prevFloat = generatedData[writeLoc - 1];
 
                     //Need to do it in this order for accuracy
-                    float a = (array5[block] * array4[block]);
-                    float b = (array2[block] * prevFloat2) + a;
-                    float float1 = (array3[block] * prevFloat1) + b;
+                    float a = (float1baseValuePerBlock[block] * valueMultiplierPerBlock[block]);
+                    float b = (prevFloatInfluencePerBlock[block] * prevFloat) + a;
+                    float float1 = (prevPrevFloatInfluencePerBlock[block] * prevPrevFloat) + b;
 
-                    float c = (array6[block] * array4[block]);
-                    float d = (array2[block] * float1) + c;
-                    float float2 = (array3[block] * prevFloat2) + d;
+                    float c = (float2baseValuePerBlock[block] * valueMultiplierPerBlock[block]);
+                    float d = (prevFloatInfluencePerBlock[block] * float1) + c;
+                    float float2 = (prevPrevFloatInfluencePerBlock[block] * prevFloat) + d;
 
                     generatedData[writeLoc] = float1;
                     generatedData[writeLoc + 1] = float2;
