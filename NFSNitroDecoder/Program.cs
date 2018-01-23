@@ -67,7 +67,7 @@ namespace NFSNitroDecoder
                         {
                             if (actualFloatAsBytes[b] != expectedFloatAsBytes[b])
                             {
-                                throw new Exception("Conversion algorithm is incorrect.");
+                                throw new Exception("Conversion algorithm is not working properly.");
                             }
                         }
                     }
@@ -114,7 +114,8 @@ namespace NFSNitroDecoder
                 uint pos = 0x680;
                 while (pos + 4 < file.Length)
                 {
-                    List<float>[] part = ConvertTrack(file, pos, $"{dirName}/{songName} part {i}.wav", out pos);
+                    String afterPart = i == 50 ? " (actually a sound effect)" : "";
+                    List<float>[] part = ConvertTrack(file, pos, $"{dirName}/{songName} - Part {i}{afterPart}.wav", out pos);
                     if (i != 50)
                     {
                         fullSongData[0].AddRange(part[0]);
@@ -125,8 +126,8 @@ namespace NFSNitroDecoder
                     pos = (uint)Math.Ceiling(pos / 128f) * 128;
                     i++;
                 }
-
-                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} Full track (All parts except 50 joined together).wav");
+                Console.WriteLine("Joining parts to form full track...");
+                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} - Full track (All parts except 50 joined together).wav");
             }
         }
 
@@ -234,20 +235,22 @@ namespace NFSNitroDecoder
             return (uint)System.Net.IPAddress.HostToNetworkOrder(BitConverter.ToInt32(file, (int)location));
         }
 
-        private static float[] Decode(byte[] file, uint filePos)
-        {
-            float[] predictorPairTable = new uint[]
+
+
+        static float[] predictorPairTable = new uint[]
                                 { 0x00000000, 0x00000000, 0x3F700000, 0x00000000,
                                   0x3FE60000, 0xBF500000, 0x3FC40000, 0xBF5C0000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
 
-            float[] scaleTable = new uint[]
+        static float[] scaleTable = new uint[]
                                 { 0x30000000, 0x2F800000, 0x2F000000, 0x2E800000,
                                   0x2E000000, 0x2D800000, 0x2D000000, 0x2C800000,
                                   0x2C000000, 0x2B800000, 0x2B000000, 0x2A800000,
                                   0x2A000000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
 
-            double f2 = BitConverter.Int64BitsToDouble(0x3f00000000000000);
+        static double f2 = BitConverter.Int64BitsToDouble(0x3f00000000000000);
 
+        private static float[] Decode(byte[] file, uint filePos)
+        {
             float[] generatedData = new float[128];
 
             float[] prevFloatPredictorPerSection = new float[4];
@@ -288,39 +291,35 @@ namespace NFSNitroDecoder
 
             for(int i = 0; i < 15; i++)
             {
-                float[] float1baseValuePerSection = new float[4];
-                float[] float2baseValuePerSection = new float[4];
-
                 for (int b = 0; b < 4; b++)
                 {
                     byte by = file[filePos];
 
-                    //This upper nibble is mapped linearly from 1879048192 to -2147483648 (in steps of 268435456).
+                    //These nibbles is mapped linearly from 1879048192 to -2147483648 (in steps of 268435456).
                     //0x0-0x7 maps to the positive numbers, and 0x8-0xF maps to the negative numbers
 
                     uint upperNibble = (by & (uint)0xF0) >> 4;
-                    float1baseValuePerSection[b] = (int)(upperNibble * 268435456);
+                    float float1baseValue = (int)(upperNibble * 268435456);
 
                     uint lowerNibble = (by & (uint)0x0F);
-                    float2baseValuePerSection[b] = (int)(lowerNibble * 268435456);
+                    float float2baseValue = (int)(lowerNibble * 268435456);
 
                     filePos += 1;
-                }
 
-                for(int section = 0; section < 4; section++)
-                {
+                    int section = b;
+
                     int writeLoc = (section * 32) + ((i+1) * 2);
                     float prevPrevFloat = generatedData[writeLoc - 2];
                     float prevFloat = generatedData[writeLoc - 1];
 
                     //Need to do it in this order for accuracy
-                    float a = (float1baseValuePerSection[section] * scalePerSection[section]);
-                    float b = (prevFloatPredictorPerSection[section] * prevFloat) + a;
-                    float float1 = (prevPrevFloatPredictorPerSection[section] * prevPrevFloat) + b;
+                    float float1 = (float1baseValue * scalePerSection[section]);
+                    float1 = (prevFloatPredictorPerSection[section] * prevFloat) + float1;
+                    float1 = (prevPrevFloatPredictorPerSection[section] * prevPrevFloat) + float1;
 
-                    float c = (float2baseValuePerSection[section] * scalePerSection[section]);
-                    float d = (prevFloatPredictorPerSection[section] * float1) + c;
-                    float float2 = (prevPrevFloatPredictorPerSection[section] * prevFloat) + d;
+                    float float2 = (float2baseValue * scalePerSection[section]);
+                    float2 = (prevFloatPredictorPerSection[section] * float1) + float2;
+                    float2 = (prevPrevFloatPredictorPerSection[section] * prevFloat) + float2;
 
                     generatedData[writeLoc] = float1;
                     generatedData[writeLoc + 1] = float2;
