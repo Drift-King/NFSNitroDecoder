@@ -137,7 +137,7 @@ namespace NFSNitroDecoder
 
             if ((firstval1 & 0x80000000) == 0x80000000)
             {
-                Console.WriteLine($"(Skipped single-block track @ {trackStartLocation:x})");
+                Console.WriteLine($"(Skipped single-chunk track @ {trackStartLocation:x})");
                 nextTrackStartLocation = trackStartLocation + (firstval1 ^ 0x80000000);
                 return null;
             }
@@ -156,32 +156,32 @@ namespace NFSNitroDecoder
             uint curPos = trackStartLocation;
             while (true)
             {
-                uint amntToNextBlock = GetUintFromFile(file, curPos);
+                uint amntToNextChunk = GetUintFromFile(file, curPos);
                 uint outputLength = GetUintFromFile(file, curPos + 4);
 
                 bool lastBlock = false;
-                if ((amntToNextBlock & 0x80000000) != 0)
+                if ((amntToNextChunk & 0x80000000) != 0)
                 {
-                    amntToNextBlock = amntToNextBlock ^ 0x80000000;
+                    amntToNextChunk = amntToNextChunk ^ 0x80000000;
 
                     lastBlock = true;
                 }
 
                 int curLength = 0;
-                uint curLinePos = curPos + 8;
+                uint curBlockPos = curPos + 8;
                 while (curLength < outputLength)
                 {
                     foreach (List<float> channel in channels)
                     {
-                        float[] data = Decode(file, curLinePos);
+                        float[] data = Decode(file, curBlockPos);
                         if (curLength + 128 > outputLength)
                         {
                             data = data.Take((int)outputLength - curLength).ToArray();
                         }
                         channel.AddRange(data);
-                        curLinePos += 76;
+                        curBlockPos += 76;
 
-                        if (curLinePos > curPos + amntToNextBlock)
+                        if (curBlockPos > curPos + amntToNextChunk)
                         {
                             throw new Exception();
                         }
@@ -194,7 +194,7 @@ namespace NFSNitroDecoder
                     throw new Exception();
                 }
 
-                curPos += amntToNextBlock;
+                curPos += amntToNextChunk;
                 if (lastBlock)
                 {
                     break;
@@ -236,87 +236,91 @@ namespace NFSNitroDecoder
 
         private static float[] Decode(byte[] file, uint filePos)
         {
-            float[] prevInfluencePairTable = new uint[]
+            float[] predictorPairTable = new uint[]
                                 { 0x00000000, 0x00000000, 0x3F700000, 0x00000000,
                                   0x3FE60000, 0xBF500000, 0x3FC40000, 0xBF5C0000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
-            float[] valueMultiplierTable = new uint[]
+
+            float[] scaleTable = new uint[]
                                 { 0x30000000, 0x2F800000, 0x2F000000, 0x2E800000,
                                   0x2E000000, 0x2D800000, 0x2D000000, 0x2C800000,
                                   0x2C000000, 0x2B800000, 0x2B000000, 0x2A800000,
                                   0x2A000000 }.Select(u => BitConverter.ToSingle(BitConverter.GetBytes(u), 0)).ToArray();
 
             double f2 = BitConverter.Int64BitsToDouble(0x3f00000000000000);
-            double f3 = BitConverter.Int64BitsToDouble(0x4330000080000000);
 
             float[] generatedData = new float[128];
 
-            //float[] array1 = new float[8];
-            float[] prevFloatInfluencePerBlock = new float[4];
-            float[] prevPrevFloatInfluencePerBlock = new float[4];
-            float[] valueMultiplierPerBlock = new float[4];
+            float[] prevFloatPredictorPerSection = new float[4];
+            float[] prevPrevFloatPredictorPerSection = new float[4];
+            float[] scalePerSection = new float[4];
 
-            int curChunkOffset = 0;
             for (int i = 0; i < 4; i++)
             {
+                int curSectionOffset = i * 32;
+
                 uint byte1 = file[filePos];
                 uint tableSelection = (byte1 & 0x0F) * 2;
-                prevFloatInfluencePerBlock[i] = prevInfluencePairTable[tableSelection];
-                prevPrevFloatInfluencePerBlock[i] = prevInfluencePairTable[tableSelection + 1];
+                prevFloatPredictorPerSection[i] = predictorPairTable[tableSelection];
+                prevPrevFloatPredictorPerSection[i] = predictorPairTable[tableSelection + 1];
 
                 int byte2SignExtend = (sbyte)file[filePos + 1];
+
+                //r9 is a number in the range 32752 to -32768 (0x00007ff0 to 0xffff80f0)
+                //and it's last nibble is always 0 (i.e. it is always a multiple of 16).
+                //f2 is 1/32768, so multiplying it by f2 scales it to the (1, -1) range
+                //(same goes for the second copy of this line)
+
                 int r9 = (byte2SignExtend << 8) | (int)(byte1 & 0xF0);
                 double otherf1 = f2 * r9;
-                generatedData[curChunkOffset] = (float)otherf1;
-                //array1[i] = (float)f1;
+                generatedData[curSectionOffset] = (float)otherf1;
 
 
                 uint byte3 = file[filePos + 2];
-                valueMultiplierPerBlock[i] = valueMultiplierTable[byte3 & 0x0F];
+                scalePerSection[i] = scaleTable[byte3 & 0x0F];
 
                 int byte4SignExtend = (sbyte)file[filePos + 3];
                 r9 = (byte4SignExtend << 8) | (int)(byte3 & 0xF0);
                 double otherf0 = f2 * r9;
-                generatedData[curChunkOffset + 1] = (float)otherf0;
-                //array1[i + 4] = (float)f0;
+                generatedData[curSectionOffset + 1] = (float)otherf0;
 
-                curChunkOffset += 32;
                 filePos += 4;
             }
 
             for(int i = 0; i < 15; i++)
             {
-                float[] float1baseValuePerBlock = new float[4];
-                float[] float2baseValuePerBlock = new float[4];
+                float[] float1baseValuePerSection = new float[4];
+                float[] float2baseValuePerSection = new float[4];
 
                 for (int b = 0; b < 4; b++)
                 {
                     byte by = file[filePos];
 
-                    //268435456 = -Int32.Min / 8
+                    //This upper nibble is mapped linearly from 1879048192 to -2147483648 (in steps of 268435456).
+                    //0x0-0x7 maps to the positive numbers, and 0x8-0xF maps to the negative numbers
 
                     uint upperNibble = (by & (uint)0xF0) >> 4;
-                    float1baseValuePerBlock[b] = (int)(upperNibble * 268435456);
+                    float1baseValuePerSection[b] = (int)(upperNibble * 268435456);
 
                     uint lowerNibble = (by & (uint)0x0F);
-                    float2baseValuePerBlock[b] = (int)(lowerNibble * 268435456);
+                    float2baseValuePerSection[b] = (int)(lowerNibble * 268435456);
 
                     filePos += 1;
                 }
 
-                for(int block = 0; block < 4; block++)
+                for(int section = 0; section < 4; section++)
                 {
-                    int writeLoc = (block * 32) + ((i+1) * 2);
+                    int writeLoc = (section * 32) + ((i+1) * 2);
                     float prevPrevFloat = generatedData[writeLoc - 2];
                     float prevFloat = generatedData[writeLoc - 1];
 
                     //Need to do it in this order for accuracy
-                    float a = (float1baseValuePerBlock[block] * valueMultiplierPerBlock[block]);
-                    float b = (prevFloatInfluencePerBlock[block] * prevFloat) + a;
-                    float float1 = (prevPrevFloatInfluencePerBlock[block] * prevPrevFloat) + b;
+                    float a = (float1baseValuePerSection[section] * scalePerSection[section]);
+                    float b = (prevFloatPredictorPerSection[section] * prevFloat) + a;
+                    float float1 = (prevPrevFloatPredictorPerSection[section] * prevPrevFloat) + b;
 
-                    float c = (float2baseValuePerBlock[block] * valueMultiplierPerBlock[block]);
-                    float d = (prevFloatInfluencePerBlock[block] * float1) + c;
-                    float float2 = (prevPrevFloatInfluencePerBlock[block] * prevFloat) + d;
+                    float c = (float2baseValuePerSection[section] * scalePerSection[section]);
+                    float d = (prevFloatPredictorPerSection[section] * float1) + c;
+                    float float2 = (prevPrevFloatPredictorPerSection[section] * prevFloat) + d;
 
                     generatedData[writeLoc] = float1;
                     generatedData[writeLoc + 1] = float2;
