@@ -114,12 +114,25 @@ namespace NFSNitroDecoder
                 uint pos = 0x680;
                 while (pos + 4 < file.Length)
                 {
-                    String afterPart = i == 50 ? " (actually a sound effect)" : "";
-                    List<float>[] part = ConvertTrack(file, pos, $"{dirName}/{songName} - Part {i}{afterPart}.wav", out pos);
-                    if (i != 50)
+
+
+                    List<float>[] part = ConvertTrack(file, pos, null, out pos);
+
+                    switch (i)
                     {
-                        fullSongData[0].AddRange(part[0]);
-                        fullSongData[1].AddRange(part[1]);
+                        case 1:
+                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Intro loop");
+                            break;
+                        case 50:
+                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Some random sound effect");
+                            break;
+                        case 51:
+                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Outro (plays on results screen)");
+                            break;
+                        default:
+                            fullSongData[0].AddRange(part[0]);
+                            fullSongData[1].AddRange(part[1]);
+                            break;
                     }
 
                     //Align pos to determine location of next track
@@ -127,7 +140,7 @@ namespace NFSNitroDecoder
                     i++;
                 }
                 Console.WriteLine("Joining parts to form full track...");
-                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} - Full track (All parts except 50 joined together).wav");
+                SaveChannelsToWAV(fullSongData, $"{dirName}/{songName} - Main loop.wav");
             }
         }
 
@@ -207,7 +220,10 @@ namespace NFSNitroDecoder
                 throw new Exception();
             }
 
-            SaveChannelsToWAV(channels, filename);
+            if (filename != null)
+            {
+                SaveChannelsToWAV(channels, filename);
+            }
 
             Console.WriteLine($"Converted {channelCount}-channel {channels[0].Count / 32000f:f2}-second-long track");
             nextTrackStartLocation = curPos;
