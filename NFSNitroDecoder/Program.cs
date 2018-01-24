@@ -121,13 +121,13 @@ namespace NFSNitroDecoder
                     switch (i)
                     {
                         case 1:
-                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Intro loop");
+                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Intro loop.wav");
                             break;
                         case 50:
-                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Some random sound effect");
+                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Some random sound effect.wav");
                             break;
                         case 51:
-                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Outro (plays on results screen)");
+                            SaveChannelsToWAV(part, $"{dirName}/{songName} - Outro (plays on results screen).wav");
                             break;
                         default:
                             fullSongData[0].AddRange(part[0]);
