@@ -1,5 +1,5 @@
 # Where this codec is used
-The two places this codec is to store songs are in the FE_COMMON_STR.ast file in \Sound\Global, and in the .mus files in the \Sound\PFData folder. There are two versions of every song in the game - one that plays during races, and one that plays in the Sountrack menu of the options. The PFData files correspond to the in-race versions, and FE_COMMMON_STR.ast contains all of the Sountrack mneu versions along with some other tracks. 
+The two places this codec is to store songs are in the FE_COMMON_STR.ast file in \Sound\Global, and in the .mus files in the \Sound\PFData folder. There are two versions of every song in the game - one that plays during races, and one that plays in the Soundtrack menu of the options. The PFData files correspond to the in-race versions, and FE_COMMMON_STR.ast contains all of the Soundtrack menu versions along with some other tracks. 
 
 The codec is also used to encode some other stuff in .ast files in the Sound\IG_Global folder, but I believe that's mostly just sound effects and police audio clips. And it may be used other places in the game, but I haven't looked at all.
 
@@ -25,6 +25,8 @@ Here's some example headers in case that helps:
 | `000007C0 00000680` | This chunk is 0x7C0 bytes long and will decode to 0x680 samples |
 | `800004D8 00000392` | This chunk is the last chunk of the track. It's 0x4D8 bytes long and will decode to 0x392 samples. | 
 
+(Also note: the generated audio files should be played at 32000Hz)
+
 ### Variations
 For some reason the AST files and the MUS files are structured slightly differently. AST files' first chunk always starts at 0x40,
 and most tracks are separated by a small single-block track that is just all zeroes. The MUS files, however, have their first chunk at 0x680. There is a bunch of data before that, but I have no idea what it means and it doesn't appear to affect the decoding algorithm in any way. 
@@ -41,12 +43,13 @@ To turn a nibble into a sample, the nibble is shifted to be the top nibble of a 
 
 sample = (shifted nibble * scale) + (prev float * predictor 1) + (prev prev float * predictor 2).
 
-Those first 16 bytes at the start of the block determine the scale and predictor floats that are used, and also encode the first two samples for each sections. Each set of 4 bytes can be thought of as 8 nibbles, and are interpereted like so:
-0x QR ST UV WX
- * R is an index into the predictor float table
- * 0xSTQ0 (sign-extended) is linearly mapped to the range (-1, 1) and becomes the first sample of the section
- * V is an index into the scale float table
- * 0xWXU0 (sign-extended) is linearly mapped to the range (-1, 1) and becomes the second sample of the section
+Those first 4 words at the start of the block determine the scale and predictor floats that are used, and also encode the first two samples for each sections. Each word can be thought of as 8 nibbles, and are interpereted like so:
+
+`0x QR ST UV WX`
+ * `R` is an index into the predictor float table
+ * `0xSTQ0` (sign-extended) is linearly mapped to the range (-1, 1) and becomes the first sample of the section
+ * `V` is an index into the scale float table
+ * `0xWXU0` (sign-extended) is linearly mapped to the range (-1, 1) and becomes the second sample of the section
 
 Those tables are as follows:
 
@@ -79,11 +82,13 @@ Scale floats
 
 So that's why there are only 120 sample nibbles - eight samples come from the info words.
 
-Also, the nibbles are also interlaced - each byte corresponds to two samples for a section, and the next byte is for the next section, and so on. 
+The nibbles are also interlaced - each byte corresponds to two samples for a section, and the next byte is for the next section, and so on. 
 
 # How I checked my algorithm
 To check that my algorithm was correct, I ran the game in a modified version of Dolphin that would spit out any audio that the
 game decoded to a file. The code just added a breakpoint at 0x80397eac, which is the location of an instruction at the end of the decoding method, and then instead of breaking when it hit the breakpoint, it instead ran this code:
+
+```C++
 u32 lineStart = GPR(4) - 76; //Location of the start of the block
 u32 decodedDataStart = GPR(3) - 128; //Location of the start of the decoded audio from this block
 
