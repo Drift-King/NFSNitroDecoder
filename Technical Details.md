@@ -1,104 +1,101 @@
-(Currently very WIP, just throwing down a draft here)
+# Where this codec is used
+The two places this codec is to store songs are in the FE_COMMON_STR.ast file in \Sound\Global, and in the .mus files in the \Sound\PFData folder. There are two versions of every song in the game - one that plays during races, and one that plays in the Sountrack menu of the options. The PFData files correspond to the in-race versions, and FE_COMMMON_STR.ast contains all of the Sountrack mneu versions along with some other tracks. 
 
-(Also, I don't know what the proper audio format terminology is, so I'm just using 
-what kinda makes sense to me. I'll look into better naming at some point)
+The codec is also used to encode some other stuff in .ast files in the Sound\IG_Global folder, but I believe that's mostly just sound effects and police audio clips. And it may be used other places in the game, but I haven't looked at all.
 
-A NFS Audio file consists of a number of sequential **chunks**, each with an 
-8-byte header followed by some number of 76-byte **blocks**. The header is just
-two (big-endian) 32-bit integers. The first integer is the length of the chunk,
-and the second integer is the length, in samples, of the audio data that this chunk
-contains (aka total # of samples / number of channels). The chunks are almost always around 0x800-0x700 bytes long.
+# Basic Structure
+*(Note: the names I came up with for the sections of these files are just things I thought made 
+sense - I reverse-engineered this from assembly so I don't know what the real terms are)*
 
-If the chunk is the last chunk of an audio file, the first bit of the header will be 1.
-Usually the buffer of samples generated from the chunk will need to be truncated to match
-the desired length.
+An NFS Audio file consists of a number of sequential **chunks**, each with an 
+8-byte header followed by some number of 76-byte **blocks**. If the first bit 
+of the header is 1, then its' corresponding chunk is the final chunk of the song. 
+Other than that,the header is just two 32-bit integers. The first integer is the 
+size of the chunk, and the second integer is the length, in samples, of the audio 
+data contained in the chunk. So, for example, if the chunk contains 1024 samples and
+the song has 2 channels, the second integer will be 512.
 
-Some example headers:
+If the chunk is the last chunk in the song, then the chunk will almost always decode to more samples than the second
+integer specifies, so any extra samples can just be discarded.
 
-| Header                    | Meaning                                                         |   
-| ------------------------- | --------------------------------------------------------------- |
+Here's some example headers in case that helps:
+
+| Header              | Meaning                                                         |   
+| ------------------- | --------------------------------------------------------------- |
 | `000007C0 00000680` | This chunk is 0x7C0 bytes long and will decode to 0x680 samples |
-| `800004D8 00000392` | This chunk is the last chunk of the track. It's 0x4D8 bytes long and will decode to 0x392 samples. |     
+| `800004D8 00000392` | This chunk is the last chunk of the track. It's 0x4D8 bytes long and will decode to 0x392 samples. | 
+
+### Variations
+For some reason the AST files and the MUS files are structured slightly differently. AST files' first chunk always starts at 0x40,
+and most tracks are separated by a small single-block track that is just all zeroes. The MUS files, however, have their first chunk at 0x680. There is a bunch of data before that, but I have no idea what it means and it doesn't appear to affect the decoding algorithm in any way. 
+
+In addition, AST files have all chunks directly following each other, including chunks from different tracks (i.e. there is no empty space in between tracks). The MUS files also have multiple tracks (for an explanation why, read the main readme), but every track is aligned so that it always starts at an address that is a multiple of 128. This means if a track ends before that, there will be some empty space in between it and the track that comes after it.
+
+# Block format
+Each block only contains data for one channel, and the blocks are interleaved within a chunk. So, a chunk with four channels will first have a block for the first channel, then the second channel, then the third, then the fourth, and the cycle starts over again. Left also comes before right.
 
 Each block in a chunk is 76 bytes long and decodes to 128 single-precision floating point numbers. The 128 samples are divided
-into 4 32-sample **sections**. The first 4 words of the 76 bytes each give information about the corresponding section. The remaining
-60 bytes represent are used to generate the rest of the sample data. In detail:
+into 4 32-sample **section**. The first 4 4-byte words of the 76 bytes contain information about their corresponding section, and the remaining 60 bytes represent samples - one nibble per sample. (Yes, that doesn't match up, but that will be explained in a bit.)
 
-Each 4-byte word:
+To turn a nibble into a sample, the nibble is shifted to be the top nibble of a 32-bit signed integer (i.e. it's mapped to the range 1879048192 to -2147483648 in steps of 268435456), and then multiplied by a section-wide **scale float**. Then, the previous two samples are multiplied by **predictor floats** and added to that. In short:
+
+sample = (shifted nibble * scale) + (prev float * predictor 1) + (prev prev float * predictor 2).
+
+Those first 16 bytes at the start of the block determine the scale and predictor floats that are used, and also encode the first two samples for each sections. Each set of 4 bytes can be thought of as 8 nibbles, and are interpereted like so:
 0x QR ST UV WX
- * R is used to select predictor floats (for that section) from a table
+ * R is an index into the predictor float table
  * 0xSTQ0 (sign-extended) is linearly mapped to the range (-1, 1) and becomes the first sample of the section
- * V is used to select a scale float (for that section) from a table
+ * V is an index into the scale float table
  * 0xWXU0 (sign-extended) is linearly mapped to the range (-1, 1) and becomes the second sample of the section
 
-The float tables:
+Those tables are as follows:
 
-Predictors
+Predictor floats
 
-| prev sample | prev prev sample | prev sample (hex) | prev prev sample (hex) |
-| ----------- | ---------------- | ----------------- | ----------|
-| 0 | 0 | 0x00000000 | 0x00000000 |
-| 0.9375 | 0 | 0x3f700000 | 0x3f700000 |
-| 1.796875 | -0.8125 | 0x3fe60000 | 0x3fe60000 |
-| 1.53125 | -0.859375 | 0x3fc40000 | 0x3fc40000 |
+| Index | Prev sample multiplier | Prev prev sample multiplier | Prev sample multiplier (hex) | Prev prev sample multiplier (hex) |
+| ----- | ----------- | ---------------- | ----------------- | ----------|
+| 0     | 0 | 0 | 0x00000000 | 0x00000000 |
+| 1     | 0.9375 | 0 | 0x3f700000 | 0x00000000 |
+| 2     | 1.796875 | -0.8125 | 0x3fe60000 | 0xbf500000 |
+| 3     | 1.53125 | -0.859375 | 0x3fc40000 | 0xbf5c0000 |
 
-Scales
+Scale floats
 
-| scale        | scale (hex)| largest amplitude w/ scale
-| ------------ | ---------- | -----------
-| 4.656613E-10 | 0x30000000 | 1
-| 2.328306E-10 | 0x2f800000 | 0.5
-| 1.164153E-10 | 0x2f000000 | 0.25
-| 5.820766E-11 | 0x2e800000 | 0.125
-| 2.910383E-11 | 0x2e000000 | 0.0625
-| 1.455192E-11 | 0x2d800000 | 0.03125
-| 7.275958E-12 | 0x2d000000 | 0.015625
-| 3.637979E-12 | 0x2c800000 | 0.0078125
-| 1.818989E-12 | 0x2c000000 | 0.00390625
-| 9.094947E-13 | 0x2b800000 | 0.001953125
-| 4.547474E-13 | 0x2b000000 | 0.0009765625
-| 2.273737E-13 | 0x2a800000 | 0.0004882813
+| Index | Scale        | Scale (hex)| Largest amplitude of nibble if this scale is selected
+| ----- | ------------ | ---------- | -----------
+| 0     | 4.656613E-10 | 0x30000000 | 1
+| 1     | 2.328306E-10 | 0x2f800000 | 0.5
+| 2     | 1.164153E-10 | 0x2f000000 | 0.25
+| 3     | 5.820766E-11 | 0x2e800000 | 0.125
+| 4     | 2.910383E-11 | 0x2e000000 | 0.0625
+| 5     | 1.455192E-11 | 0x2d800000 | 0.03125
+| 6     | 7.275958E-12 | 0x2d000000 | 0.015625
+| 7     | 3.637979E-12 | 0x2c800000 | 0.0078125
+| 8     | 1.818989E-12 | 0x2c000000 | 0.00390625
+| 9     | 9.094947E-13 | 0x2b800000 | 0.001953125
+| 10    | 4.547474E-13 | 0x2b000000 | 0.0009765625
+| 11    | 2.273737E-13 | 0x2a800000 | 0.00048828125
+| 12    | 1.136868E-13 | 0x2a000000 | 0.000244140625
 
+So that's why there are only 120 sample nibbles - eight samples come from the info words.
 
+Also, the nibbles are also interlaced - each byte corresponds to two samples for a section, and the next byte is for the next section, and so on. 
 
-This means the remaing 60 bytes correspond to 30 samples for each section. Each nibble represents a single sample,
-and the nibbles are arranged so they correspond to sections like 00 11 22 33 00 11 22 33
+# How I checked my algorithm
+To check that my algorithm was correct, I ran the game in a modified version of Dolphin that would spit out any audio that the
+game decoded to a file. The code just added a breakpoint at 0x80397eac, which is the location of an instruction at the end of the decoding method, and then instead of breaking when it hit the breakpoint, it instead ran this code:
+u32 lineStart = GPR(4) - 76; //Location of the start of the block
+u32 decodedDataStart = GPR(3) - 128; //Location of the start of the decoded audio from this block
 
-The nibbles determine the float like so:
- * First they're mapped from 1879048192 to -2147483648 (in steps of 268435456); 0x0-0x7 
-   maps to the positive numbers, and 0x8-0xF maps to the negative numbers
- * Then that is multiplied by the scale float selected by V above
- * It is then added to the previous 2 samples multiplied by their respective predictor floats (selected by R above)
+std::vector<char> line_bytes(76);
+Memory::CopyFromEmu(line_bytes.data(), lineStart, 76);
 
+std::vector<char> decoded_bytes(512);
+Memory::CopyFromEmu(decoded_bytes.data(), decodedDataStart, 512);
 
-The AST files and PFData files are slightly different in format 
-[stuff stuff stuff]
-
-
-
-To dump the audio data from the game I added a breakpoint at 0x80397eac (this instruction is part of the stack
-?unrolling? done in the decoding function) and to the method PowerPC::CheckBreakPoints I replaced `CPU::Break()`
-with the following code:
-```C++
-if (PC == 0x80397eac)
-{
-  u32 lineStart = GPR(4) - 76;
-  u32 decodedDataStart = GPR(3) - 128;
-
-  std::vector<char> line_bytes(76);
-  Memory::CopyFromEmu(line_bytes.data(), lineStart, 76);
-
-  std::vector<char> decoded_bytes(512);
-  Memory::CopyFromEmu(decoded_bytes.data(), decodedDataStart, 512);
-
-  std::ofstream stream;
-  stream.open("C:\\Users\\rolan\\Desktop\\Need For Speed Nitro\\testdata.raw", std::ios::out | std::ios::binary | std::ios::app);
-  stream.write(line_bytes.data(), 76);
-  stream.write(decoded_bytes.data(), 512);
-  stream.close();
-}
-else
-{
-  CPU::Break();
-}
+std::ofstream stream;
+stream.open("C:\\Users\\rolan\\Desktop\\Need For Speed Nitro\\testdata.raw", std::ios::out | std::ios::binary | std::ios::app);
+stream.write(line_bytes.data(), 76);
+stream.write(decoded_bytes.data(), 512);
+stream.close();
 ```
