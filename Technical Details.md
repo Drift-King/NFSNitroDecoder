@@ -37,7 +37,7 @@ In addition, AST files have all chunks directly following each other, including 
 Each block only contains data for one channel, and the blocks are interleaved within a chunk. So, a chunk with four channels will first have a block for the first channel, then the second channel, then the third, then the fourth, and the cycle starts over again. Left also comes before right.
 
 Each block in a chunk is 76 bytes long and decodes to 128 single-precision floating point numbers. The 128 samples are divided
-into 4 32-sample **section**. The first 4 4-byte words of the 76 bytes contain information about their corresponding section, and the remaining 60 bytes represent samples - one nibble per sample. (Yes, that doesn't match up, but that will be explained in a bit.)
+into four 32-sample **sections**. The first four 4-byte words of the 76 bytes contain information about their corresponding section, and the remaining 60 bytes represent samples - one nibble per sample. (Yes, that doesn't match up, but that will be explained in a bit.)
 
 To turn a nibble into a sample, the nibble is shifted to be the top nibble of a 32-bit signed integer (i.e. it's mapped to the range 1879048192 to -2147483648 in steps of 268435456), and then multiplied by a section-wide **scale float**. Then, the previous two samples are multiplied by **predictor floats** and added to that. In short:
 
