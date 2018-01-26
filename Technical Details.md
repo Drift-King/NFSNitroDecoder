@@ -86,7 +86,9 @@ The nibbles are also interlaced - each byte corresponds to two samples for a sec
 
 # How I checked my algorithm
 To check that my algorithm was correct, I ran the game in a modified version of Dolphin that would spit out any audio that the
-game decoded to a file. The code just added a breakpoint at 0x80397eac, which is the location of an instruction at the end of the decoding method, and then instead of breaking when it hit the breakpoint, it instead ran this code:
+game decoded to a file, and then compared those results with the results of the method I wrote. That data can be found in the testdata.raw file (although it's been shuffled so expect to be able to extract any songs from it). 
+
+My code just added a breakpoint at 0x80397eac, which is the location of an instruction at the end of the decoding method, and then instead of breaking when it hit the breakpoint, it instead ran this code:
 
 ```C++
 u32 lineStart = GPR(4) - 76; //Location of the start of the block
