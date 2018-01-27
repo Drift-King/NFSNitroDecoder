@@ -1,9 +1,21 @@
 # Need For Speed Nitro Audio Decoder
+Need for Speed: Nitro has some cool exclusive songs as well as some versions of songs that can't be found anywhere else. Unfortunately, as as far as I am aware, no one had figured out the format the songs are encoded in on the disc. So I reverse-engineered the audio decoding code using Dolphin and wrote a decoder in C#.
 
-At some point I'll flesh out this readme, but for now here are some random important-ish notes for anyone using this:
- * All of this code was reverse-engineered with the help of Dolphin's debugger - huge, huge thanks to the wonderful Dolphin developers, and in particular those that worked on the debugger.
- * NFS: Nitro has two versions of each song - one in a file called FE_COMMON_STR.ast (which also contains some other audio files) and one in a folder named PFData (each folder in PFData contains 4 files, but the only relevant ones are the .mus files and they contain the exact same audio data). The FE_COMMON_STR.ast version play in the "Soundtrack" menu of the options, and the PFData versions play during races. Some songs' versions are only slightly different, and some moreso. It seems like in all cases there is a slight difference in mixing or equalization or something like that. Some songs also have extended outros or intros. Maybe there's other differences - I haven't carefully examined each song. Regardless, this program can extract both of them.
-  * For some reason the PFData files are divided into 51 separate parts - all of them are exactly the same length except for the first and the last part, and the second to last is always some sound effect (the exact same one in all songs but I don't know what it's from). If you convert a PFData song, the program spits out all 51 parts and also a stiched-together version (without part 50, obviously).
- * To ensure that this algorithm is accurate, I downloaded the Dolphin source and modified it to save any song data the game generated to a file, then played the game for a bit. testdata.raw contains all of this generated data (shuffled around just in case lengthy snippets of songs would violate copyright laws or something) and the `VerifyConversionAlgorithm` method compares the test data to the output of my program. I will try to test it every time I commit, but just in case I forget or the floating point math works out differently on different machines or something, you can run the test yourself with the `--verify-algorithm` command.
- * There are also some other AST files on the disk - this program can extract those as well.
- * I have no idea what the algorithm is doing conceptually. I just converted the PowerPC instructions to C# but beyond that I don't know why it's doing what it's doing. I'll take a look though (or ask someone with more experience) and if I figure it out I'll update this readme.
+## Basic usage
+NFS: Nitro has two versions of each song - one that plays in the Soundtrack menu of the settings, and one that is used during a race. The one that plays in the Soundtrack menu is just a single audio file per song, but the versions used during a race are split into multiple parts. They each have an intro loop (which loops until the race starts), a main loop (which loops during the race), and an outro (which plays on the results screen). The versions used during a race also seem to be slightly different overall - it might be a mixing difference, or some sort of filter or something. I'm not sure.
+
+The Soundtrack versions are in a file called FE_COMMON_STR.ast in the folder /Sound/Global, and the in-race versions are in the /Sound/PFData folder. Within the /Sound/PFData folder, each song has its own folder, which contains two .mus files which are just two copies of the same song (don't ask me why, I have no idea). There are also some other .ast files on the disc, and this program can extract them as well.
+
+Anyway! Now that you know that, here are the possible arguments you can pass to this program:
+ * `--ast <path to .ast file>`: Extracts tracks from an .ast file. Note that .ast files have no info about track names, so the names are just the location of the track within the file.
+  * `--pfdata <path to PFData folder>`: Converts songs from the PFData folder. For some reason, the PFData songs also each include a sound effect (the same one for each file). I have no idea when it's used, by it's extracted for completeness' sake.
+  * `--all-songs <path to Sound folder>`: Extracts all songs from FE_COMMON_STR.ast and from the PFData folder. Note that the FE_COMMON_STR.ast file has more than just the 26 licensed songs.
+
+The program will convert any files it extracts to WAV.
+
+## Extra stuff
+In order to ensure that my program is decoding files correctly, I got some real sample data using Dolphin and tested it against my method. If you'd like to run the test for yourself, just make sure you have the testdata.raw file and then run the program with the `--verify-algorithm` argument. I always test it before committing, but C# doesn't guarantee that floating-point operations are consistent across platorms, so it would be a good idea to do this just in case. I may decide to change the algorithm at some point so it doesn't rely on inconsistent floating-point operataions, or I might just do a rewrite in C++.
+
+If you're interested in the techincal details of the format of the files and/or the decoding algorithm, I've described it in detail in the Technical Details.md file.
+
+Finally, thanks a ton to the Dolphin developers, as without Dolphin I couldn't have decoded these files. And thanks in particular to the devs who worked on the debugger, which was an invaluable tool for exploring the game's code.
