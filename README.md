@@ -8,7 +8,7 @@ The Soundtrack versions are in a file called FE_COMMON_STR.ast in the folder /So
 
 Anyway! Now that you know that, here are the possible arguments you can pass to this program:
  * `--ast <path to .ast file>`: Extracts tracks from an .ast file. Note that .ast files have no info about track names, so the names are just the location of the track within the file.
-  * `--pfdata <path to PFData folder>`: Converts songs from the PFData folder. For some reason, the PFData songs also each include a sound effect (the same one for each file). I have no idea when it's used, by it's extracted for completeness' sake.
+  * `--pfdata <path to PFData folder>`: Converts songs from the PFData folder. For some reason, the PFData songs also each include a sound effect (the same one for each file). I have no idea when it's used, but it's extracted for completeness' sake.
   * `--all-songs <path to Sound folder>`: Extracts all songs from FE_COMMON_STR.ast and from the PFData folder. Note that the FE_COMMON_STR.ast file has more than just the 26 licensed songs.
 
 The program will convert any files it extracts to WAV.
