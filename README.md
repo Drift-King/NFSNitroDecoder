@@ -1,5 +1,7 @@
 # Need For Speed Nitro Audio Decoder
-Need for Speed: Nitro has some cool exclusive songs as well as some versions of songs that can't be found anywhere else. Unfortunately, as far as I am aware, no one had figured out the format the songs are encoded in on the disc. So I reverse-engineered the audio decoding code using Dolphin and wrote a decoder in C#.
+Need for Speed: Nitro has some cool exclusive songs as well as some versions of songs that can't be found anywhere else. ~Unfortunately, as far as I am aware, no one had figured out the format the songs are encoded in on the disc.~ So I reverse-engineered the audio decoding code using Dolphin and wrote a decoder in C#.
+
+Edit: as it turns out, the format was already known, see [here](https://hcs64.com/mboard/forum.php?showthread=54407&lastpage) for more info. I'll leave this up in case someone finds it useful - at the very least the info about NFS's two versions of each song is novel.
 
 ## Basic usage
 NFS: Nitro has two versions of each song - one that plays in the Soundtrack menu of the settings, and one that is used during a race. The one that plays in the Soundtrack menu is just a single audio file per song, but the versions used during a race are split into multiple parts. They each have an intro loop (which loops until the race starts), a main loop (which loops during the race), and an outro (which plays on the results screen). The versions used during a race also seem to be slightly different overall - it might be a mixing difference, or some sort of filter or something. I'm not sure.
